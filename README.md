@@ -6,3 +6,5 @@ Suggested installation is executing
 pip install -e .
 ```
 in the root directory of this repo.
+
+This code is inspired by https://github.com/QAOAKit/QAOAKit
