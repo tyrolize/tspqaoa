@@ -19,7 +19,7 @@ setup(
     python_requires=">=3, <4",
     packages=["tspqaoa"],
     install_requires=[
-        "qiskit==0.29.0",
+        "qiskit>=0.29.0",
         "pynauty",
         "qiskit-optimization",
         "pandas",
