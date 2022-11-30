@@ -1,3 +1,4 @@
+from functools import partial
 from math import sqrt
 
 

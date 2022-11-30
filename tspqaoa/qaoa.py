@@ -329,8 +329,17 @@ def get_simultaneous_ordering_swap_mixer(G, beta, T1, T2, encoding="onehot"):
         return qc
 
 
-def get_tsp_init_circuit(G, encoding="onehot"):
-    if encoding == "onehot":
+def get_tsp_init_circuit(G, init_state=None, encoding="onehot"):
+    if encoding == "onehot" and init_state:
+        N = G.number_of_nodes()
+        l = len(init_state)
+        assert l==n**2
+        qc = QuantumCircuit(l)
+        for i in range(l):
+            if i == 1:
+                qc.x(i)
+        return qc
+    elif encoding == "onehot":
         N = G.number_of_nodes()
         qc = QuantumCircuit(N**2)
         for i in range(N):
@@ -339,7 +348,7 @@ def get_tsp_init_circuit(G, encoding="onehot"):
 
 
 def get_tsp_qaoa_circuit(
-    G, beta, gamma, T1=5, T2=5, pen=2, transpile_to_basis=True, save_state=True, encoding="onehot"
+    G, beta, gamma, init_state = None, T1=5, T2=5, pen=2, transpile_to_basis=True, save_state=True, encoding="onehot"
 ):
     if encoding == "onehot":
         assert len(beta) == len(gamma)
@@ -348,7 +357,10 @@ def get_tsp_qaoa_circuit(
         qr = QuantumRegister(N**2)
         qc = QuantumCircuit(qr)
         # prepare the init state in onehot encoding
-        qc = qc.compose(get_tsp_init_circuit(G, encoding="onehot"))
+        if init_state:
+            qc = qc.compose(get_tsp_init_circuit(G, init_state, encoding="onehot"))
+        else:
+            qc = qc.compose(get_tsp_init_circuit(G, encoding="onehot"))
         # second, apply p alternating operators
         for i in range(p):
             qc = qc.compose(get_tsp_cost_operator_circuit(G, gamma[i], pen, encoding="onehot"))
@@ -488,16 +500,20 @@ def compute_tsp_cost_expectation(counts, G, pen):
     return avg/sum_count
 
 
-def get_tsp_expectation_value(G, pen):
+def get_tsp_expectation_value_method(G, pen, init_state=None):
     
     """
     Runs parametrized circuit
     
     Args:
         G: networkx graph
-        p: int,
-           Number of repetitions of unitaries
-        pen: penalty for wrong formatted paths
+        pen: int
+            penalty for wrong formatted paths
+        init_state: string
+            initial state in the onehot encoding
+    
+    Returns :
+        execute_circ method
     """
     
     #backend = Aer.get_backend('qasm_simulator')
@@ -508,7 +524,7 @@ def get_tsp_expectation_value(G, pen):
         assert n%2 == 0
         beta = angles[0:int(n/2)]
         gamma = angles[int(n/2):n]
-        qc = get_tsp_qaoa_circuit(G, beta, gamma)
+        qc = get_tsp_qaoa_circuit(G, beta, gamma, init_state=init_state)
         qc.measure_all()
         #counts = backend.run(qc).result().get_counts()
         counts = execute(qc, aersim).result().get_counts()
