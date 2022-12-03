@@ -23,8 +23,8 @@ def onehot_city_string(n, l):
     -------
     s : onehot encoding of n
     """
-    assert l>=(n-1)
-    return '0'*n + '1' + '0'*(l-n-1)
+    assert int(l)>=(int(n)-1)
+    return '0'*int(n) + '1' + '0'*(l-int(n)-1)
 
 
 def format_qaoa_output(s):
@@ -44,9 +44,9 @@ def format_qaoa_output(s):
     assert is_square(N)
     assert check_only_allowed_chars(s,'01')
     city_list = []
-    for i in sqrt(N):
-        for j in sqrt(N):
-            if s[i*N+j] == 1:
+    for i in range(int(sqrt(N))):
+        for j in range(int(sqrt(N))):
+            if s[i*int(sqrt(N))+j] == '1':
                 city_list.append(j)
                 break
     return(city_list)

@@ -333,7 +333,7 @@ def get_tsp_init_circuit(G, init_state=None, encoding="onehot"):
     if encoding == "onehot" and init_state:
         N = G.number_of_nodes()
         l = len(init_state)
-        assert l==n**2
+        assert l==N**2
         qc = QuantumCircuit(l)
         for i in range(l):
             if i == 1:

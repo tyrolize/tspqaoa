@@ -6,9 +6,9 @@ from qiskit import (Aer, ClassicalRegister, QuantumCircuit, QuantumRegister,
                     execute)
 from qiskit.providers.aer import AerSimulator
 
-from .optimization import get_optimized_angles
+from .optimization import get_optimized_angles, run_qaoa
 from .qaoa import get_tsp_qaoa_circuit
-from .utils import unformat_qaoa_output
+from .utils import format_qaoa_output, unformat_qaoa_output
 
 
 def state_split(global_state, local_nodes):
@@ -106,23 +106,25 @@ def graph_rewrite(G, global_state, local_state):
     Returns
     -------
     G_qls : networkx.Graph
-        rewritten graph with size bounded by 2n
+        rewritten graph with size bounded by 3n
         for n-size of the neighbourhood
     """
     G_qls = G # initialize the rewritten graph with original graph
     path_pieces = state_split(global_state, local_state)
     for pp in path_pieces:
+        pp_int = [int(i) for i in pp]
         d = 0
-        l = len(pp)
-        for i in range(l-1): # compute the weight of path piece
-            d += G_qls.edges[pp[i], pp[i+1]]['weight']
+        l = len(pp_int)
+        if l > 1:
+            for i in range(l-1): # compute the weight of path piece
+                d += G_qls[pp_int[i]][pp_int[i+1]]['weight']
         for i in range(1,l-1): # remove the bulk nodes of the path piece
-            G_qls.remove_node(pp[i])
+            G_qls.remove_node(pp_int[i]) # this renames the nodes?
         for n in G_qls.nodes: # update the weights
-            if n not in pp:
-                G_qls.edges[n, pp[0]]['weight'] += d/2
-                G_qls.edges[n, pp[-1]]['weight'] += d/2
-        G_qls.edges[pp[0], pp[-1]] = 0 # set the weight between boundary nodes of pp to 0
+            if n not in pp_int:
+                G_qls[n][pp_int[0]]['weight'] += d/2
+                G_qls[n][pp_int[-1]]['weight'] += d/2
+        G_qls[pp_int[0]][pp_int[-1]]['weight'] = 0 # set the weight between boundary nodes of pp to 0
     return G_qls
        
 
@@ -146,17 +148,17 @@ def qls_main_subroutine(G, global_state, local_state):
         updated global state of the solution
     """
     G_qls = graph_rewrite(G, global_state, local_state)
-    init_state_onehot = unformat_qaoa_output(qls_state(global_state, local_state))
 
-
-    pen = G.number_of_nodes()*10
-    x0 = np.ones(2) # p is inferred from len(x0)
-    x = get_optimized_angles(G_qls, x0, pen, init_state_onehot)
-    x = x['x']
-    p=len(x)
-    beta = x[0:int(p/2)]
-    gamma = x[int(p/2):p]
-    qc = get_tsp_qaoa_circuit(G, beta, gamma, pen=5, T1=1, T2=1)
-    qc.measure_all()
-    aersim = AerSimulator(device="CPU")
-    counts = execute(qc, aersim).result().get_counts()
+    init_state = qls_state(global_state, local_state)
+    print("init state: ", init_state)
+    path_pieces = state_split(global_state, local_state)
+    print("path pieces:", path_pieces)
+    init_state_onehot = unformat_qaoa_output(init_state)
+    print("init state ohenot:", init_state_onehot)
+    updated_state_onehot = run_qaoa(G_qls, init_state_onehot)
+    print("updated state onehot: ", updated_state_onehot)
+    updated_state = format_qaoa_output(updated_state_onehot)
+    print("updated qls state: ", updated_state)
+    global_state = path_piece_insert(updated_state, path_pieces)
+    print("updated global state: ", global_state)
+    return global_state
