@@ -27,14 +27,15 @@ def onehot_city_string(n, l):
     return '0'*int(n) + '1' + '0'*(l-int(n)-1)
 
 
-def format_qaoa_output(s):
+def format_from_onehot(s, translate=None):
     """
     Formats the measured output of QAOA circuit in the "onehot" encoding to
     a list of cities.
 
     Parameters
     ----------
-    G : string with the measurement result
+    s : string with the measurement result
+    translate : dictionary with city correspondencies (1..k) to graph notation
 
     Returns
     -------
@@ -49,9 +50,13 @@ def format_qaoa_output(s):
             if s[i*int(sqrt(N))+j] == '1':
                 city_list.append(j)
                 break
-    return(city_list)
+    if translate:
+        translated_city_list = [x if x not in translate else translate[x] for x in city_list]
+        return(translated_city_list)
+    else:
+        return(city_list)
 
-def unformat_qaoa_output(city_list):
+def unformat_to_onehot(city_list, translate=None):
     """
     Inverse of format_qaoa_output.
     Converts a list of cities to the onehot encoding.
@@ -59,6 +64,7 @@ def unformat_qaoa_output(city_list):
     Parameters
     ----------
     city_list : list with the integer cities
+    translate : dictionary with city correspondencies graph notation to (1..k)
 
     Returns
     -------
@@ -66,6 +72,11 @@ def unformat_qaoa_output(city_list):
     """
     s = ''
     l = len(city_list)
-    for c in city_list:
-        s += onehot_city_string(c, l)
+    if translate:
+        translated_city_list = [x if x not in translate else translate[x] for x in city_list]
+        for c in translated_city_list:
+            s += onehot_city_string(c, l)
+    else:
+        for c in city_list:
+            s += onehot_city_string(c, l)
     return s

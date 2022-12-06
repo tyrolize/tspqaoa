@@ -8,7 +8,7 @@ from qiskit.providers.aer import AerSimulator
 
 from .optimization import get_optimized_angles, run_qaoa
 from .qaoa import get_tsp_qaoa_circuit
-from .utils import format_qaoa_output, unformat_qaoa_output
+from .utils import format_from_onehot, unformat_to_onehot
 
 
 def state_split(global_state, local_nodes):
@@ -56,6 +56,8 @@ def qls_state(global_state, local_nodes):
     Returns
     -------
     qls_state : List of integers
+    path_pieces : List of lists of integers
+        needed to reinsert the path pieces
     """
     path_pieces = state_split(global_state, local_nodes)
     qls_state = global_state
@@ -63,7 +65,7 @@ def qls_state(global_state, local_nodes):
         if len(pp)>=3:
             for n in pp[1:-1]:
                 qls_state.remove(n)
-    return qls_state
+    return qls_state, path_pieces
 
 
 def path_piece_insert(qls_state, path_pieces):
@@ -109,7 +111,7 @@ def graph_rewrite(G, global_state, local_state):
         rewritten graph with size bounded by 3n
         for n-size of the neighbourhood
     """
-    G_qls = G # initialize the rewritten graph with original graph
+    G_qls = G.copy() # initialize the rewritten graph with original graph
     path_pieces = state_split(global_state, local_state)
     for pp in path_pieces:
         pp_int = [int(i) for i in pp]
@@ -119,7 +121,7 @@ def graph_rewrite(G, global_state, local_state):
             for i in range(l-1): # compute the weight of path piece
                 d += G_qls[pp_int[i]][pp_int[i+1]]['weight']
         for i in range(1,l-1): # remove the bulk nodes of the path piece
-            G_qls.remove_node(pp_int[i]) # this renames the nodes?
+            G_qls.remove_node(pp_int[i])
         for n in G_qls.nodes: # update the weights
             if n not in pp_int:
                 G_qls[n][pp_int[0]]['weight'] += d/2
@@ -149,16 +151,13 @@ def qls_main_subroutine(G, global_state, local_state):
     """
     G_qls = graph_rewrite(G, global_state, local_state)
 
-    init_state = qls_state(global_state, local_state)
+    init_state, path_pieces = qls_state(global_state, local_state) # list of int
     print("init state: ", init_state)
-    path_pieces = state_split(global_state, local_state)
     print("path pieces:", path_pieces)
-    init_state_onehot = unformat_qaoa_output(init_state)
-    print("init state ohenot:", init_state_onehot)
-    updated_state_onehot = run_qaoa(G_qls, init_state_onehot)
+    updated_state_onehot = run_qaoa(G_qls, init_state)
     print("updated state onehot: ", updated_state_onehot)
-    updated_state = format_qaoa_output(updated_state_onehot)
+    updated_state = format_from_onehot(updated_state_onehot)
     print("updated qls state: ", updated_state)
     global_state = path_piece_insert(updated_state, path_pieces)
     print("updated global state: ", global_state)
-    return global_state
+    return updated_state_onehot
