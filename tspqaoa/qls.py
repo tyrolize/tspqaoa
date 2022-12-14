@@ -6,9 +6,9 @@ from qiskit import (Aer, ClassicalRegister, QuantumCircuit, QuantumRegister,
                     execute)
 from qiskit.providers.aer import AerSimulator
 
-from .optimization import get_optimized_angles, run_qaoa
-from .qaoa import get_tsp_qaoa_circuit
-from .utils import format_from_onehot, unformat_to_onehot
+from tspqaoa.optimization import get_optimized_angles, run_qaoa, run_tsp_solver
+from tspqaoa.qaoa import get_tsp_qaoa_circuit
+from tspqaoa.utils import format_from_onehot, unformat_to_onehot
 
 
 def state_split(global_state, local_nodes):
@@ -89,10 +89,24 @@ def path_piece_insert(qls_state, path_pieces):
                 global_state[i:i+2] = pp
             elif global_state[i] == pp[-1] and global_state[i+1] == pp[0]:
                 global_state[i:i+2] = list(reversed(pp))
+        if global_state[-1] == pp[0] and global_state[0] == pp[-1]:
+            global_state[-1:] = pp
+            global_state.pop(0)
+        elif global_state[-1] == pp[1] and global_state[0] == pp[0]:
+            global_state[-1:] = list(reversed(pp))
+            global_state.pop(0)
     return global_state
 
 
-def graph_rewrite(G, global_state, local_state):
+def invariant_neighbours(path_pieces):
+    invariant_neighbours = []
+    for pp in path_pieces:
+        if pp[0] != pp[-1]:
+            invariant_neighbours.append([pp[0],pp[-1]])
+    return invariant_neighbours
+
+
+def graph_rewrite(G, global_state, local_state, pen=10):
     """
     Rewrites the graph for the QLS routine.
 
@@ -126,11 +140,43 @@ def graph_rewrite(G, global_state, local_state):
             if n not in pp_int:
                 G_qls[n][pp_int[0]]['weight'] += d/2
                 G_qls[n][pp_int[-1]]['weight'] += d/2
-        G_qls[pp_int[0]][pp_int[-1]]['weight'] = 0 # set the weight between boundary nodes of pp to 0
+        G_qls[pp_int[0]][pp_int[-1]]['weight'] = 0 # set the weight between boundary nodes of pp to -pen
     return G_qls
        
 
-def qls_main_subroutine(G, global_state, local_state):
+def qls_main_subroutine(G, global_state, local_state, device="GPU"):
+    """
+    One O(k)-local update of the global state.
+    This is the main QLS subroutine. k-opt.
+
+    Parameters
+    ----------
+    G : networkx.Graph
+        Graph to rewrite (and solve TSP on)
+    global_state : List of integers (size n)
+        current global state of the solution
+    local_state : List of integers (size k<n)
+        local state (neighbourhood) of the solution
+
+    Returns
+    -------
+    new_global_state : List of integers (size n)
+        updated global state of the solution
+    """
+    G_qls = graph_rewrite(G, global_state, local_state)
+
+    init_state, path_pieces = qls_state(global_state, local_state) # list of int
+    print("init state: ", init_state)
+    print("path pieces:", path_pieces)
+    i_n = invariant_neighbours(path_pieces)
+    updated_qls_state = run_qaoa(G_qls, init_state, i_n=i_n, device=device)
+    print("updated qls state: ", updated_qls_state)
+    global_state = path_piece_insert(updated_qls_state, path_pieces)
+    print("updated global state: ", global_state)
+    return global_state
+
+
+def benchmark_main_subroutine(G, global_state, local_state):
     """
     One O(k)-local update of the global state.
     This is the main QLS subroutine.
@@ -154,10 +200,8 @@ def qls_main_subroutine(G, global_state, local_state):
     init_state, path_pieces = qls_state(global_state, local_state) # list of int
     print("init state: ", init_state)
     print("path pieces:", path_pieces)
-    updated_state_onehot = run_qaoa(G_qls, init_state)
-    print("updated state onehot: ", updated_state_onehot)
-    updated_state = format_from_onehot(updated_state_onehot)
-    print("updated qls state: ", updated_state)
-    global_state = path_piece_insert(updated_state, path_pieces)
+    updated_qls_state = run_tsp_solver(G_qls, init_state)
+    print("updated qls state: ", updated_qls_state)
+    global_state = path_piece_insert(updated_qls_state, path_pieces)
     print("updated global state: ", global_state)
-    return updated_state_onehot
+    return global_state

@@ -9,7 +9,8 @@ from qiskit import (Aer, ClassicalRegister, QuantumCircuit, QuantumRegister,
 from qiskit.compiler import transpile
 from qiskit.providers.aer import AerSimulator
 
-from .graph_utils import misra_gries_edge_coloring
+from tspqaoa.graph_utils import misra_gries_edge_coloring
+from tspqaoa.utils import format_from_onehot
 
 
 def append_zz_term(qc, q1, q2, gamma):
@@ -149,7 +150,7 @@ def get_tsp_cost_operator_circuit(
     encoding : string, default "onehot"
         Type of encoding for the city ordering
     translate :
-        dictionary with city encoding (numerical to problem)
+        dictionary with city encoding (ascending numerical to problem encoding)
 
     Returns
     -------
@@ -189,12 +190,12 @@ def get_tsp_cost_operator_circuit(
                     q2 = ((n+1)*N + v) % (N**2)
                     if translate:
                         if G.has_edge(translate[u], translate[v]):
-                            append_zz_term(qc, q1, q2, gamma * G[translate[u]][translate[v]]["weight"])
-                        else:
-                            append_zz_term(qc, q1, q2, gamma * pen)
-                    else:
-                        if G.has_edge(translate[u], translate[v]):
                             qc.crz(gamma * G[translate[u]][translate[v]]["weight"], q1, q2)
+                        else:
+                            qc.crz(gamma * pen, q1, q2)
+                    else:
+                        if G.has_edge(u, v):
+                            qc.crz(gamma * G[u][v]["weight"], q1, q2)
                         else:
                             qc.crz(gamma * pen, q1, q2)
         return qc
@@ -301,14 +302,26 @@ def get_simultaneous_ordering_swap_mixer(G, beta, T1, T2, encoding="onehot"):
 
 
 def get_tsp_init_circuit(G, init_state=None, encoding="onehot"):
+    """
+    Generates an inti state.
+
+    Parameters
+    ----------
+    G : networkx.Graph
+        Graph to solve TSP on
+    init_state : list of integers
+
+    Returns
+    -------
+    qc : qiskit.QuantumCircuit
+        Quantum circuit implementing the TSP phase unitary
+    """
     if encoding == "onehot" and init_state:
         N = G.number_of_nodes()
-        l = len(init_state)
-        assert l==N**2
-        qc = QuantumCircuit(l)
-        for i in range(l):
-            if i == 1:
-                qc.x(i)
+        assert N == len(init_state)
+        qc = QuantumCircuit(N**2)
+        for i in range(N):
+            qc.x(i*N + init_state[i])
         return qc
     elif encoding == "onehot":
         N = G.number_of_nodes()
@@ -418,6 +431,18 @@ def is_valid_path(s, N): # pafloxy
     return True
 
 
+def are_neighbours_invariant(s, N, i_n):
+    s_to_numerical = format_from_onehot(s)
+    neighbours_in_s = list(zip(s_to_numerical,
+                           s_to_numerical[1:]))
+    if N>2:
+        neighbours_in_s.append((s_to_numerical[-1],s_to_numerical[0]))
+    for nn in i_n:
+        if set(nn) not in [set(i) for i in neighbours_in_s]:
+            return False
+    return True
+
+
 def solution_string_to_list(s, N):
     #assert is_valid_path(s, N)
     l = []
@@ -429,22 +454,27 @@ def solution_string_to_list(s, N):
     return l
 
 
-def get_tsp_cost(s, G, pen):
+def get_tsp_cost(s, G, pen, i_n, translate=None):
     N = G.number_of_nodes()
     assert len(s) == N**2
-    if is_valid_path(s, N):
+    if is_valid_path(s, N) and are_neighbours_invariant(s, N, i_n):
         cost = 0
         l = solution_string_to_list(s, N)
         for i in range(N):
             u = l[i]
             v = l[(i+1) % (N-1)]
-            cost += G[u][v]['weight']
+            if translate:
+                cost += G[translate[u]][translate[v]]['weight']
+            else:
+                cost += G[u][v]['weight']
         return cost
+    elif is_valid_path(s, N):
+        return pen/2
     else:
         return pen
 
 
-def compute_tsp_cost_expectation(counts, G, pen):
+def compute_tsp_cost_expectation(counts, G, pen, i_n, translate=None):
     
     """
     Computes expectation value of cost based on measurement results
@@ -466,14 +496,17 @@ def compute_tsp_cost_expectation(counts, G, pen):
     sum_count = 0
     for bitstring, count in counts.items():
         
-        obj = get_tsp_cost(bitstring, G, pen)
+        obj = get_tsp_cost(bitstring, G, pen, i_n, translate=translate)
         avg += obj * count
         sum_count += count
         
     return avg/sum_count
 
 
-def get_tsp_expectation_value_method(G, pen, translate=None, init_state=None):
+def get_tsp_expectation_value_method(G, pen, i_n,
+                                     translate=None,
+                                     init_state=None,
+                                     device="GPU"):
     
     """
     Runs parametrized circuit
@@ -490,7 +523,7 @@ def get_tsp_expectation_value_method(G, pen, translate=None, init_state=None):
     """
     
     #backend = Aer.get_backend('qasm_simulator')
-    aersim = AerSimulator(device="CPU")
+    aersim = AerSimulator(device=device)
     
     def execute_circ(angles):
         n = len(angles)
@@ -502,6 +535,6 @@ def get_tsp_expectation_value_method(G, pen, translate=None, init_state=None):
         #counts = backend.run(qc).result().get_counts()
         counts = execute(qc, aersim).result().get_counts()
         
-        return compute_tsp_cost_expectation(counts, G, pen)
+        return compute_tsp_cost_expectation(counts, G, pen, i_n, translate=translate)
     
     return execute_circ
