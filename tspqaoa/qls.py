@@ -106,7 +106,7 @@ def invariant_neighbours(path_pieces):
     return invariant_neighbours
 
 
-def graph_rewrite(G, global_state, local_state, pen=10):
+def graph_rewrite(G, global_state, local_state):
     """
     Rewrites the graph for the QLS routine.
 
@@ -126,7 +126,7 @@ def graph_rewrite(G, global_state, local_state, pen=10):
         for n-size of the neighbourhood
     """
     G_qls = G.copy() # initialize the rewritten graph with original graph
-    path_pieces = state_split(global_state, local_state)
+    init_state, path_pieces = qls_state(global_state, local_state)
     for pp in path_pieces:
         pp_int = [int(i) for i in pp]
         d = 0
@@ -141,7 +141,18 @@ def graph_rewrite(G, global_state, local_state, pen=10):
                 G_qls[n][pp_int[0]]['weight'] += d/2
                 G_qls[n][pp_int[-1]]['weight'] += d/2
         G_qls[pp_int[0]][pp_int[-1]]['weight'] = 0 # set the weight between boundary nodes of pp to -pen
-    return G_qls
+    assert set(init_state) == set(G_qls.nodes())
+    translate_dictionary = {}
+    key = 0
+    for i in init_state:
+        translate_dictionary[key] = i
+        key += 1
+    untranslate_dictionary = {}
+    for key, value in translate_dictionary.items():
+        untranslate_dictionary[value] = key
+    G_qls = nx.relabel_nodes(G_qls, untranslate_dictionary, copy=False)
+
+    return G_qls, init_state, path_pieces, translate_dictionary
        
 
 def qls_main_subroutine(G, global_state, local_state, device="GPU"):
@@ -163,15 +174,14 @@ def qls_main_subroutine(G, global_state, local_state, device="GPU"):
     new_global_state : List of integers (size n)
         updated global state of the solution
     """
-    G_qls = graph_rewrite(G, global_state, local_state)
-
-    init_state, path_pieces = qls_state(global_state, local_state) # list of int
-    print("init state: ", init_state)
+    G_qls, init_state, path_pieces, translate_dictionary = graph_rewrite(G, global_state, local_state)
     print("path pieces:", path_pieces)
+    print("init state: ", init_state)
     i_n = invariant_neighbours(path_pieces)
-    updated_qls_state = run_qaoa(G_qls, init_state, i_n=i_n, device=device)
-    print("updated qls state: ", updated_qls_state)
-    global_state = path_piece_insert(updated_qls_state, path_pieces)
+    updated_qls_state = run_qaoa(G_qls, i_n=i_n, device=device)
+    print("updated untranslated qls state: ", updated_qls_state)
+    translated_qls_state = [translate_dictionary[x] for x in updated_qls_state]
+    global_state = path_piece_insert(translated_qls_state, path_pieces)
     print("updated global state: ", global_state)
     return global_state
 

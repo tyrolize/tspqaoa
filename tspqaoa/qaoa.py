@@ -75,67 +75,8 @@ def append_4_qubit_pauli_rotation_term(qc, q1, q2, q3, q4, beta, pauli="zzzz"):
         raise ValueError("Not a valid Pauli gate or wrong locality")
 
 
-def append_n_qubit_z_term(qc, ql, angle):
-    for i in range(len(ql)-1):
-        qc.cx(ql[i],ql[i+1])
-    qc.rz(2 * angle, ql[-1])
-    for i in range(len(ql)-1):
-        qc.cx(ql[len(ql)-2+i],ql[len(ql)-1+i])
-
-
-def append_n_qubit_pauli_rotation_term(qc, ql, beta, pauli):
-    allowed_symbols = set("xyz")
-    if set(pauli).issubset(allowed_symbols) and len(pauli) == len(ql):
-        for i in range(len(ql)-1):
-            if pauli[0] == "x":
-                qc.h(ql[i])
-            elif pauli[0] == "y":
-                qc.rx(-np.pi*.5, ql[i])
-        append_n_qubit_z_term(qc, ql, beta)
-        for i in range(len(ql)-1):
-            if pauli[0] == "x":
-                qc.h(ql[i])
-            elif pauli[0] == "y":
-                qc.rx(-np.pi*.5, ql[i])
-    else:
-        raise ValueError("Not a valid Pauli gate or wrong locality")
-
-
-def append_3control_toffoli_x(qc, qtarget, qcontrols):
-    pass
-
-
-def append_swap_rotation_term(qc, q1, q2, beta):
-    qc.cx(q2,q1)
-    qc.x(q1)
-    qc.crz(2 * beta, q1, q2)
-    qc.x(q1)
-    qc.crx(2 * beta, q1, q2)
-    qc.cx(q2,q1)
-
-
-def get_mixer_operator_circuit(G, beta):
-    N = G.number_of_nodes()
-    qc = QuantumCircuit(N)
-    for n in G.nodes():
-        append_x_term(qc, n, beta)
-    return qc
-
-
-def get_maxcut_cost_operator_circuit(G, gamma):
-    N = G.number_of_nodes()
-    qc = QuantumCircuit(N)
-    for i, j in G.edges():
-        if nx.is_weighted(G):
-            append_zz_term(qc, i, j, gamma * G[i][j]["weight"])
-        else:
-            append_zz_term(qc, i, j, gamma)
-    return qc
-
-
 def get_tsp_cost_operator_circuit(
-    G, gamma, pen, encoding="onehot",
-    translate=None, structure="controlled z"):
+    G, gamma, pen, encoding="onehot", structure="controlled z"):
     """
     Generates a circuit for the TSP phase unitary with optional penalty.
 
@@ -167,16 +108,10 @@ def get_tsp_cost_operator_circuit(
                 for v in range(N): #road from city v to city u
                     q1 = (n*N + u) % (N**2)
                     q2 = ((n+1)*N + v) % (N**2)
-                    if translate:
-                        if G.has_edge(translate[u], translate[v]):
-                            append_zz_term(qc, q1, q2, gamma * G[translate[u]][translate[v]]["weight"])
-                        else:
-                            append_zz_term(qc, q1, q2, gamma * pen)
+                    if G.has_edge(u, v):
+                        append_zz_term(qc, q1, q2, gamma * G[u][v]["weight"])
                     else:
-                        if G.has_edge(u, v):
-                            append_zz_term(qc, q1, q2, gamma * G[u][v]["weight"])
-                        else:
-                            append_zz_term(qc, q1, q2, gamma * pen)
+                        append_zz_term(qc, q1, q2, gamma * pen)
         return qc
     if encoding == "onehot" and structure == "controlled z":
         N = G.number_of_nodes()
@@ -188,16 +123,10 @@ def get_tsp_cost_operator_circuit(
                 for v in range(N): #road from city v to city u
                     q1 = (n*N + u) % (N**2)
                     q2 = ((n+1)*N + v) % (N**2)
-                    if translate:
-                        if G.has_edge(translate[u], translate[v]):
-                            qc.crz(gamma * G[translate[u]][translate[v]]["weight"], q1, q2)
-                        else:
-                            qc.crz(gamma * pen, q1, q2)
+                    if G.has_edge(u, v):
+                        qc.crz(gamma * G[u][v]["weight"], q1, q2)
                     else:
-                        if G.has_edge(u, v):
-                            qc.crz(gamma * G[u][v]["weight"], q1, q2)
-                        else:
-                            qc.crz(gamma * pen, q1, q2)
+                        qc.crz(gamma * pen, q1, q2)
         return qc
 
 
@@ -243,18 +172,6 @@ def get_ordering_swap_partial_mixing_circuit(
             append_4_qubit_pauli_rotation_term(qc, qui, qvj, quj, qvi, dt, "yxyx")
             append_4_qubit_pauli_rotation_term(qc, qui, qvj, quj, qvi, -dt, "yyxx")
             append_4_qubit_pauli_rotation_term(qc, qui, qvj, quj, qvi, dt, "yyyy")
-        return qc
-    if encoding == "onehot" and structure == "swap rotation":
-        N = G.number_of_nodes()
-        dt = beta/T
-        qc = QuantumCircuit(N**2)
-        qui = (N*i + u) % (N**2)
-        qvj = (N*j + v) % (N**2)
-        quj = (N*j + u) % (N**2)
-        qvi = (N*i + v) % (N**2)
-        for t in range(T): # this is not correct, implement control with ancilla?
-            append_swap_rotation_term(qc, qui, qvi, beta)
-            append_swap_rotation_term(qc, quj, qvj, beta)
         return qc
 
 
@@ -332,8 +249,7 @@ def get_tsp_init_circuit(G, init_state=None, encoding="onehot"):
 
 
 def get_tsp_qaoa_circuit(
-    G, beta, gamma, init_state = None, T1=5, T2=5, pen=2,
-    translate = None,
+    G, beta, gamma, T1=5, T2=5, pen=2,
     transpile_to_basis=True, save_state=True, encoding="onehot"
 ):
     if encoding == "onehot":
@@ -343,78 +259,16 @@ def get_tsp_qaoa_circuit(
         qr = QuantumRegister(N**2)
         qc = QuantumCircuit(qr)
         # prepare the init state in onehot encoding
-        if init_state:
-            qc = qc.compose(get_tsp_init_circuit(G, init_state, encoding="onehot"))
-        else:
-            qc = qc.compose(get_tsp_init_circuit(G, encoding="onehot"))
+        qc = qc.compose(get_tsp_init_circuit(G, encoding="onehot"))
         # second, apply p alternating operators
         for i in range(p):
-            qc = qc.compose(get_tsp_cost_operator_circuit(G, gamma[i], pen, translate=translate, encoding="onehot"))
+            qc = qc.compose(get_tsp_cost_operator_circuit(G, gamma[i], pen, encoding="onehot"))
             qc = qc.compose(get_simultaneous_ordering_swap_mixer(G, beta[i], T1, T2, encoding="onehot"))
         if transpile_to_basis:
             qc = transpile(qc, optimization_level=0, basis_gates=["u1", "u2", "u3", "cx"])
         if save_state:
             qc.save_state()
         return qc
-
-
-def get_maxcut_qaoa_circuit(
-    G, beta, gamma, transpile_to_basis=True, save_state=True, qr=None, cr=None
-):
-    """
-    Generates a circuit for weighted MaxCut on graph G.
-
-    Parameters
-    ----------
-    G : networkx.Graph
-        Graph to solve MaxCut on
-    beta : list-like
-        QAOA parameter beta
-    gamma : list-like
-        QAOA parameter gamma
-    transpile_to_basis : bool, default True
-        Transpile the circuit to ["u1", "u2", "u3", "cx"]
-    save_state : bool, default True
-        Add save state instruction to the end of the circuit
-    qr : qiskit.QuantumRegister, default None
-        Registers to use for the circuit.
-        Useful when one has to compose circuits in a complicated way
-        By default, G.number_of_nodes() registers are used
-    cr : qiskit.ClassicalRegister, default None
-        Classical registers, useful if measuring
-        By default, no classical registers are added
-
-    Returns
-    -------
-    qc : qiskit.QuantumCircuit
-        Quantum circuit implementing QAOA
-    """
-    assert len(beta) == len(gamma)
-    p = len(beta)  # infering number of QAOA steps from the parameters passed
-    N = G.number_of_nodes()
-    if qr is not None:
-        assert isinstance(qr, QuantumRegister)
-        assert qr.size >= N
-    else:
-        qr = QuantumRegister(N)
-
-    if cr is not None:
-        assert isinstance(cr, ClassicalRegister)
-        qc = QuantumCircuit(qr, cr)
-    else:
-        qc = QuantumCircuit(qr)
-
-    # first, apply a layer of Hadamards
-    qc.h(range(N))
-    # second, apply p alternating operators
-    for i in range(p):
-        qc = qc.compose(get_maxcut_cost_operator_circuit(G, gamma[i]))
-        qc = qc.compose(get_mixer_operator_circuit(G, beta[i]))
-    if transpile_to_basis:
-        qc = transpile(qc, optimization_level=0, basis_gates=["u1", "u2", "u3", "cx"])
-    if save_state:
-        qc.save_state()
-    return qc
 
 
 def is_valid_path(s, N): # pafloxy
@@ -454,7 +308,7 @@ def solution_string_to_list(s, N):
     return l
 
 
-def get_tsp_cost(s, G, pen, i_n, translate=None):
+def get_tsp_cost(s, G, pen, i_n=[]):
     N = G.number_of_nodes()
     assert len(s) == N**2
     if is_valid_path(s, N) and are_neighbours_invariant(s, N, i_n):
@@ -462,11 +316,8 @@ def get_tsp_cost(s, G, pen, i_n, translate=None):
         l = solution_string_to_list(s, N)
         for i in range(N):
             u = l[i]
-            v = l[(i+1) % (N-1)]
-            if translate:
-                cost += G[translate[u]][translate[v]]['weight']
-            else:
-                cost += G[u][v]['weight']
+            v = l[(i+1)%N]
+            cost += G[u][v]['weight']
         return cost
     elif is_valid_path(s, N):
         return pen/2
@@ -474,7 +325,7 @@ def get_tsp_cost(s, G, pen, i_n, translate=None):
         return pen
 
 
-def compute_tsp_cost_expectation(counts, G, pen, i_n, translate=None):
+def compute_tsp_cost_expectation(counts, G, pen, i_n=[]):
     
     """
     Computes expectation value of cost based on measurement results
@@ -496,17 +347,14 @@ def compute_tsp_cost_expectation(counts, G, pen, i_n, translate=None):
     sum_count = 0
     for bitstring, count in counts.items():
         
-        obj = get_tsp_cost(bitstring, G, pen, i_n, translate=translate)
+        obj = get_tsp_cost(bitstring, G, pen, i_n)
         avg += obj * count
         sum_count += count
         
     return avg/sum_count
 
 
-def get_tsp_expectation_value_method(G, pen, i_n,
-                                     translate=None,
-                                     init_state=None,
-                                     device="GPU"):
+def get_tsp_expectation_value_method(G, pen, i_n=[], device="GPU"):
     
     """
     Runs parametrized circuit
@@ -530,11 +378,11 @@ def get_tsp_expectation_value_method(G, pen, i_n,
         assert n%2 == 0
         beta = angles[0:int(n/2)]
         gamma = angles[int(n/2):n]
-        qc = get_tsp_qaoa_circuit(G, beta, gamma, translate=translate, init_state=init_state)
+        qc = get_tsp_qaoa_circuit(G, beta, gamma)
         qc.measure_all()
         #counts = backend.run(qc).result().get_counts()
         counts = execute(qc, aersim).result().get_counts()
         
-        return compute_tsp_cost_expectation(counts, G, pen, i_n, translate=translate)
+        return compute_tsp_cost_expectation(counts, G, pen, i_n)
     
     return execute_circ
