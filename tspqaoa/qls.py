@@ -5,6 +5,7 @@ import numpy as np
 from qiskit import (Aer, ClassicalRegister, QuantumCircuit, QuantumRegister,
                     execute)
 from qiskit.providers.aer import AerSimulator
+import warnings
 
 from tspqaoa.optimization import get_optimized_angles, run_qaoa, run_tsp_solver
 from tspqaoa.qaoa import get_tsp_qaoa_circuit
@@ -84,24 +85,30 @@ def path_piece_insert(qls_state, path_pieces):
     """
     global_state = qls_state
     for pp in path_pieces:
-        for i in range(len(global_state)-1):
-            if global_state[i] == pp[0] and global_state[i+1] == pp[-1]:
-                global_state[i:i+2] = pp
-            elif global_state[i] == pp[-1] and global_state[i+1] == pp[0]:
-                global_state[i:i+2] = list(reversed(pp))
-        if global_state[-1] == pp[0] and global_state[0] == pp[-1]:
-            global_state[-1:] = pp
-            global_state.pop(0)
-        elif global_state[-1] == pp[1] and global_state[0] == pp[0]:
-            global_state[-1:] = list(reversed(pp))
-            global_state.pop(0)
+        n = len(global_state)
+        if len(pp) > 2:
+            for i in range(n-1):
+                if global_state[i] == pp[0] and global_state[i+1] == pp[-1]:
+                    global_state[i:i+2] = pp
+                    break
+                elif global_state[i] == pp[-1] and global_state[i+1] == pp[0]:
+                    global_state[i:i+2] = list(reversed(pp))
+                    break
+            else:
+                if global_state[-1] == pp[0] and global_state[0] == pp[-1]:
+                    global_state[-1:] = pp[:-1]
+                elif global_state[-1] == pp[1] and global_state[0] == pp[0]:
+                    global_state[-1:] = list(reversed(pp))[:-1]
+                else:
+                    warnings.warn("Warning: path piece not incerted")
     return global_state
+
 
 
 def invariant_neighbours(path_pieces):
     invariant_neighbours = []
     for pp in path_pieces:
-        if pp[0] != pp[-1]:
+        if len(pp)>2:
             invariant_neighbours.append([pp[0],pp[-1]])
     return invariant_neighbours
 
@@ -124,23 +131,30 @@ def graph_rewrite(G, global_state, local_state):
     G_qls : networkx.Graph
         rewritten graph with size bounded by 3n
         for n-size of the neighbourhood
+    init_state : list of integers
+        initial state of the G_qls (untranslated)
+        untranslated state is the qls state encoded as in original
+        graph. translated state is the qls state indexed from 0 to k-1.
+    path_pieces : list of lists of integers
+        lists of path pieces
+    translate_dictionary : dictionary of integers to integers
+        mapping of translated to untranslated qls state
     """
     G_qls = G.copy() # initialize the rewritten graph with original graph
     init_state, path_pieces = qls_state(global_state, local_state)
     for pp in path_pieces:
-        pp_int = [int(i) for i in pp]
         d = 0
-        l = len(pp_int)
+        l = len(pp)
         if l > 1:
             for i in range(l-1): # compute the weight of path piece
-                d += G_qls[pp_int[i]][pp_int[i+1]]['weight']
-        for i in range(1,l-1): # remove the bulk nodes of the path piece
-            G_qls.remove_node(pp_int[i])
-        for n in G_qls.nodes: # update the weights
-            if n not in pp_int:
-                G_qls[n][pp_int[0]]['weight'] += d/2
-                G_qls[n][pp_int[-1]]['weight'] += d/2
-        G_qls[pp_int[0]][pp_int[-1]]['weight'] = 0 # set the weight between boundary nodes of pp to -pen
+                d += G_qls[pp[i]][pp[i+1]]['weight']
+            for n in pp[1:-1]: # remove the bulk nodes of the path piece
+                G_qls.remove_node(n)
+            for n in G_qls.nodes: # update the weights
+                if n not in pp:
+                    G_qls[n][pp[0]]['weight'] += d/2
+                    G_qls[n][pp[-1]]['weight'] += d/2
+            G_qls[pp[0]][pp[-1]]['weight'] = 0 # set the weight between boundary nodes of pp to -pen
     assert set(init_state) == set(G_qls.nodes())
     translate_dictionary = {}
     key = 0
@@ -178,6 +192,7 @@ def qls_main_subroutine(G, global_state, local_state, device="GPU"):
     print("path pieces:", path_pieces)
     print("init state: ", init_state)
     i_n = invariant_neighbours(path_pieces)
+    print("invariant neighbours: ", i_n)
     updated_qls_state = run_qaoa(G_qls, i_n=i_n, device=device)
     print("updated untranslated qls state: ", updated_qls_state)
     translated_qls_state = [translate_dictionary[x] for x in updated_qls_state]

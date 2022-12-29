@@ -208,13 +208,10 @@ def get_simultaneous_ordering_swap_mixer(G, beta, T1, T2, encoding="onehot"):
         dt = beta/T2
         qc = QuantumCircuit(N**2)
         for t in range(T2):
-            for i in range(N-1):
+            for i in range(N):
                 for u, v in G.edges:
                     qc = qc.compose(get_ordering_swap_partial_mixing_circuit(
-                                G, i, i+1, u, v, dt, T1, encoding="onehot"))
-            for u, v in G.edges:
-                qc = qc.compose(get_ordering_swap_partial_mixing_circuit(
-                                G, N-1, 0, u, v, dt, T1, encoding="onehot"))
+                                G, i, (i+1)%N, u, v, dt, T1, encoding="onehot"))
         return qc
 
 
@@ -285,44 +282,35 @@ def is_valid_path(s, N): # pafloxy
     return True
 
 
-def are_neighbours_invariant(s, N, i_n):
-    s_to_numerical = format_from_onehot(s)
-    neighbours_in_s = list(zip(s_to_numerical,
-                           s_to_numerical[1:]))
-    if N>2:
-        neighbours_in_s.append((s_to_numerical[-1],s_to_numerical[0]))
+def are_neighbours_invariant(l, i_n):
+    neighbours_in_s = list(zip(l, l[1:]))
+    if len(l)>2:
+        neighbours_in_s.append((l[-1],l[0]))
     for nn in i_n:
         if set(nn) not in [set(i) for i in neighbours_in_s]:
             return False
     return True
 
 
-def solution_string_to_list(s, N):
-    #assert is_valid_path(s, N)
-    l = []
-    for i in range(N):
-        for j in range(N):
-            c = i*N+j
-            if int(s[c]) == 1:
-                l.append(j)
-    return l
-
-
 def get_tsp_cost(s, G, pen, i_n=[]):
     N = G.number_of_nodes()
     assert len(s) == N**2
-    if is_valid_path(s, N) and are_neighbours_invariant(s, N, i_n):
-        cost = 0
-        l = solution_string_to_list(s, N)
-        for i in range(N):
-            u = l[i]
-            v = l[(i+1)%N]
+    cost = 0
+    l = format_from_onehot(s)
+    #print(l)
+    for i in range(N):
+        u = l[i]
+        v = l[(i+1)%N]
+        try: # quick and dirty fix for the case [u][v] is not an edge (else key error)
             cost += G[u][v]['weight']
+        except:
+            cost += pen/N
+    if is_valid_path(s, N) and are_neighbours_invariant(l, i_n):
         return cost
     elif is_valid_path(s, N):
-        return pen/2
+        return cost+pen/2
     else:
-        return pen
+        return cost+pen
 
 
 def compute_tsp_cost_expectation(counts, G, pen, i_n=[]):
