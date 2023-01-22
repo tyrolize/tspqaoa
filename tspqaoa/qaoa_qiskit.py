@@ -10,7 +10,9 @@ from qiskit.compiler import transpile
 from qiskit.providers.aer import AerSimulator
 
 from tspqaoa.graph_utils import misra_gries_edge_coloring
-from tspqaoa.utils import compute_tsp_cost_expectation
+from tspqaoa.optimization import get_optimized_angles
+from tspqaoa.utils import (compute_tsp_cost_expectation,
+                           format_from_onehot, unformat_to_onehot)
 
 
 def append_zz_term(qc, q1, q2, gamma):
@@ -300,3 +302,43 @@ def get_tsp_expectation_value_method(G, pen, i_n=[], device="GPU"):
         return compute_tsp_cost_expectation(counts, G, pen, i_n)
     
     return execute_circ
+
+
+def run_qaoa(G, i_n=[], T_depth=5, device="GPU"):
+    """
+    Run QAOA on the graph
+
+    Parameters
+    ----------
+    G : networkx.Graph
+        Graph to solve TSP on
+
+    Returns
+    -------
+    output_state : List of integers (size n)
+        updated state of G
+    """
+    pen = G.number_of_nodes()*10
+
+    x0 = np.ones(2) # p is inferred from len(x0)
+    x = get_optimized_angles(G, x0, pen, i_n, device=device)
+    x = x['x']
+    p=len(x)
+    beta = x[0:int(p/2)]
+    gamma = x[int(p/2):p]
+    qc = get_tsp_qaoa_circuit(G, beta, gamma, pen=5, T1=T_depth, T2=T_depth)
+    qc.measure_all()
+
+    #plot_histogram(aersim.run(qc).result().get_counts(), figsize=(25,15))
+    aersim = AerSimulator(device=device)
+
+    counts = execute(qc, aersim).result().get_counts()
+
+    max_states = [key for key, value in counts.items() if value == max(counts.values())] # most likely states
+
+    # add more statistics here (output error if not a sharp peak)
+
+    assert len(max_states) == 1
+
+    output_state_untranslated = format_from_onehot(max_states[0])
+    return output_state_untranslated
